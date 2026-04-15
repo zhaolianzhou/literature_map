@@ -1,6 +1,10 @@
 import axios from 'axios';
 import type { Poet, PoetDetail, PoetTrace, Poem, Location, HeatmapPoint, Stats } from '../types';
 
+// BASE_URL is the origin only (no /api suffix).
+// - Dev:  falls back to http://localhost:8000
+// - Prod: set VITE_API_URL to your backend origin, e.g. https://backend.up.railway.app
+//         Leave empty when nginx proxies /api/ to the backend on the same origin.
 const BASE_URL = import.meta.env.VITE_API_URL !== undefined && import.meta.env.VITE_API_URL !== ''
   ? import.meta.env.VITE_API_URL
   : import.meta.env.DEV

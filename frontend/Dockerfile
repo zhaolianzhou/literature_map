@@ -9,7 +9,10 @@ RUN npm ci
 COPY . .
 
 # VITE_API_URL is injected at build time
-ARG VITE_API_URL=/api
+# Empty by default: requests go to the same origin and nginx proxies /api/ to backend.
+# On Railway (separate frontend/backend services), set this build arg to the
+# backend's public URL with NO trailing slash, e.g. https://backend.up.railway.app
+ARG VITE_API_URL=
 ENV VITE_API_URL=$VITE_API_URL
 
 RUN npm run build
