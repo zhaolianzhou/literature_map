@@ -1,7 +1,8 @@
 import os
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import pool
+from sqlalchemy import create_engine
 from sqlmodel import SQLModel
 
 from alembic import context
@@ -17,18 +18,22 @@ if config.config_file_name is not None:
 # Use SQLModel's shared metadata for autogenerate support.
 target_metadata = SQLModel.metadata
 
-# Override sqlalchemy.url from the DATABASE_URL environment variable if set,
-# so we don't have to hard-code credentials in alembic.ini.
+# DATABASE_URL must be set — fail loudly if missing so the pre-deploy
+# command aborts rather than silently connecting to the wrong host.
 db_url = os.environ.get("DATABASE_URL")
-if db_url:
-    config.set_main_option("sqlalchemy.url", db_url)
+if not db_url:
+    raise RuntimeError(
+        "DATABASE_URL environment variable is not set. "
+        "Set it in your Railway service variables."
+    )
+
+config.set_main_option("sqlalchemy.url", db_url)
 
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode (no live DB connection required)."""
-    url = config.get_main_option("sqlalchemy.url")
     context.configure(
-        url=url,
+        url=db_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -39,11 +44,7 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode (connects to the database)."""
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    connectable = create_engine(db_url, poolclass=pool.NullPool)
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():
