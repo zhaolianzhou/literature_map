@@ -19,7 +19,8 @@ FROM nginx:alpine
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# nginx config: serve SPA and proxy /api to backend
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# nginx config template: serve SPA and proxy /api to backend
+# BACKEND_URL is injected at runtime via envsubst (e.g. https://xxx.up.railway.app)
+COPY nginx.conf /etc/nginx/templates/default.conf.template
 
 EXPOSE 80
