@@ -2,10 +2,6 @@
 dockerfilePath = "Dockerfile"
 
 [deploy]
-# Run Alembic migrations + seed (idempotent) before the server starts.
-# If this fails, the deployment is aborted — safe for production.
-preDeployCommand = "cd /app && alembic -c /app/alembic.ini upgrade head && python /app/seed.py"
-startCommand = "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
 healthcheckPath = "/"
 healthcheckTimeout = 60
 restartPolicyType = "ON_FAILURE"
