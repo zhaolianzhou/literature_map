@@ -1,12 +1,27 @@
 import os
-from fastapi import FastAPI
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from sqlmodel import Session, select, func
+
 from app.routers import poems, poets, locations
+from app.db import create_db_and_tables, get_session
+from app.db_models import Poem, Poet, Location, PoemLocation
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Create database tables on startup (idempotent — safe to run repeatedly).
+    In production, prefer Alembic migrations over this auto-create approach."""
+    create_db_and_tables()
+    yield
+
 
 app = FastAPI(
     title="Ancient China Literature Map API",
     description="Travel traces of Tang Dynasty poets from 唐诗三百首",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 ALLOWED_ORIGINS = os.environ.get(
@@ -42,21 +57,20 @@ def root():
 
 
 @app.get("/api/stats")
-def stats():
-    """High-level statistics about the dataset."""
-    from app.data.poems_data import POEMS, POETS
-    from app.data.locations_db import TANG_LOCATIONS
-
-    location_set = set()
-    for poem in POEMS:
-        for loc in poem.get("locations", []):
-            location_set.add(loc)
+def stats(session: Session = Depends(get_session)):
+    """High-level statistics about the dataset, sourced from the database."""
+    total_poems = session.exec(select(func.count()).select_from(Poem)).one()
+    total_poets = session.exec(select(func.count()).select_from(Poet)).one()
+    total_locations_db = session.exec(select(func.count()).select_from(Location)).one()
+    total_unique_locations_in_poems = session.exec(
+        select(func.count(func.distinct(PoemLocation.location_id)))
+    ).one()
 
     return {
-        "total_poems": len(POEMS),
-        "total_poets": len(POETS),
-        "total_locations_db": len(TANG_LOCATIONS),
-        "total_unique_locations_in_poems": len(location_set),
+        "total_poems": total_poems,
+        "total_poets": total_poets,
+        "total_locations_db": total_locations_db,
+        "total_unique_locations_in_poems": total_unique_locations_in_poems,
         "dynasties": ["唐"],
         "time_span": "618–907 AD",
     }

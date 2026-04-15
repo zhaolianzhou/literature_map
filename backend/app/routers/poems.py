@@ -1,16 +1,88 @@
-from fastapi import APIRouter, HTTPException, Query
-from app.data.poems_data import POEMS, POETS
-from app.data.locations_db import get_location
-from app.location_resolver import resolve_poem_locations, extract_locations_from_text
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlmodel import Session, select, func, or_
+
+from app.db import get_session
+from app.db_models import Poet, Poem, PoemLocation, Location, LocationAlias
 
 router = APIRouter(prefix="/api/poems", tags=["poems"])
 
 
-def _build_poem_response(poem: dict) -> dict:
-    """Enrich a poem dict with resolved location objects."""
-    locs = poem.get("locations", [])
-    resolved = resolve_poem_locations(locs)
-    return {**poem, "resolved_locations": resolved}
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _location_to_dict(loc: Location) -> dict:
+    return {
+        "name": loc.name,
+        "ancient_name": loc.ancient or loc.name,
+        "modern_name": loc.modern or "",
+        "lat": loc.lat,
+        "lng": loc.lng,
+        "description": loc.description or "",
+    }
+
+
+def _poem_to_dict(poem: Poem, session: Session) -> dict:
+    links = session.exec(
+        select(PoemLocation)
+        .where(PoemLocation.poem_id == poem.id)
+        .order_by(PoemLocation.mention_order)
+    ).all()
+    location_names: list[str] = []
+    resolved_locations: list[dict] = []
+    for link in links:
+        loc = session.get(Location, link.location_id)
+        if loc:
+            location_names.append(loc.name)
+            resolved_locations.append(_location_to_dict(loc))
+
+    author_name = poem.author.name if poem.author else ""
+    return {
+        "id": poem.id,
+        "title": poem.title,
+        "author": author_name,
+        "dynasty": poem.dynasty,
+        "content": poem.content,
+        "written_year": poem.written_year,
+        "occasion": poem.occasion,
+        "locations": location_names,
+        "resolved_locations": resolved_locations,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+
+@router.get("/search/locations")
+def poems_by_location(
+    place: str = Query(..., description="Place name to search"),
+    session: Session = Depends(get_session),
+):
+    """Find all poems that mention a given location (by name or alias)."""
+    # Resolve alias → canonical location
+    loc = session.exec(select(Location).where(Location.name == place)).first()
+    if not loc:
+        alias = session.exec(
+            select(LocationAlias).where(LocationAlias.alias == place)
+        ).first()
+        if alias:
+            loc = session.get(Location, alias.canonical_id)
+
+    if not loc:
+        return {"place": place, "count": 0, "poems": []}
+
+    poem_ids = session.exec(
+        select(PoemLocation.poem_id).where(PoemLocation.location_id == loc.id)
+    ).all()
+
+    poems = []
+    for pid in poem_ids:
+        poem = session.get(Poem, pid)
+        if poem:
+            poems.append(_poem_to_dict(poem, session))
+
+    return {"place": place, "count": len(poems), "poems": poems}
 
 
 @router.get("/")
@@ -19,39 +91,42 @@ def list_poems(
     location: str | None = Query(None, description="Filter by location name"),
     skip: int = 0,
     limit: int = 100,
+    session: Session = Depends(get_session),
 ):
     """Return all poems, optionally filtered by author or location."""
-    result = POEMS
+    stmt = select(Poem).order_by(func.coalesce(Poem.written_year, 9999), Poem.id)
+
     if author:
-        result = [p for p in result if author in p["author"]]
+        poet = session.exec(select(Poet).where(Poet.name.contains(author))).first()
+        if poet:
+            stmt = stmt.where(Poem.author_id == poet.id)
+        else:
+            return {"total": 0, "poems": []}
+
     if location:
-        result = [
-            p for p in result if any(location in loc for loc in p.get("locations", []))
-        ]
-    return {
-        "total": len(result),
-        "poems": [_build_poem_response(p) for p in result[skip : skip + limit]],
-    }
+        # Find matching location (name or alias)
+        loc = session.exec(
+            select(Location).where(Location.name.contains(location))
+        ).first()
+        if loc:
+            poem_ids = session.exec(
+                select(PoemLocation.poem_id).where(PoemLocation.location_id == loc.id)
+            ).all()
+            stmt = stmt.where(Poem.id.in_(poem_ids))
+        else:
+            return {"total": 0, "poems": []}
+
+    all_poems = session.exec(stmt).all()
+    total = len(all_poems)
+    page = all_poems[skip: skip + limit]
+
+    return {"total": total, "poems": [_poem_to_dict(p, session) for p in page]}
 
 
 @router.get("/{poem_id}")
-def get_poem(poem_id: int):
+def get_poem(poem_id: int, session: Session = Depends(get_session)):
     """Return a single poem by ID."""
-    for poem in POEMS:
-        if poem["id"] == poem_id:
-            return _build_poem_response(poem)
-    raise HTTPException(status_code=404, detail=f"Poem {poem_id} not found")
-
-
-@router.get("/search/locations")
-def poems_by_location(place: str = Query(..., description="Place name to search")):
-    """Find all poems that mention a given location."""
-    matches = []
-    for poem in POEMS:
-        locs = poem.get("locations", [])
-        # Also scan content for untagged mentions
-        content_locs = extract_locations_from_text(poem["content"])
-        all_locs = list(set(locs + content_locs))
-        if any(place in loc for loc in all_locs):
-            matches.append(_build_poem_response(poem))
-    return {"place": place, "count": len(matches), "poems": matches}
+    poem = session.get(Poem, poem_id)
+    if not poem:
+        raise HTTPException(status_code=404, detail=f"Poem {poem_id} not found")
+    return _poem_to_dict(poem, session)

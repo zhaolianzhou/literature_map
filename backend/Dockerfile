@@ -1,4 +1,4 @@
-FROM python:3.10-slim
+FROM python:3.11-slim
 
 WORKDIR /app
 
@@ -12,8 +12,9 @@ COPY pyproject.toml poetry.lock ./
 RUN poetry config virtualenvs.create false \
     && poetry install --only main --no-interaction --no-ansi
 
-# Copy application code
+# Copy application code and seed script
 COPY app/ ./app/
+COPY seed.py ./
 
 EXPOSE 8000
 

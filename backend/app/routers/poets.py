@@ -1,46 +1,111 @@
-from fastapi import APIRouter, HTTPException
-from app.data.poems_data import POEMS, POETS
-from app.data.locations_db import get_location
-from app.location_resolver import resolve_poem_locations
+from fastapi import APIRouter, Depends, HTTPException
+from sqlmodel import Session, select, func
+
+from app.db import get_session
+from app.db_models import Poet, Poem, PoemLocation, Location, LocationAlias
 
 router = APIRouter(prefix="/api/poets", tags=["poets"])
 
 
-def _build_trace(poet_name: str) -> list[dict]:
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _resolve_location_row(session: Session, loc_name: str) -> Location | None:
+    """Look up a location by name or alias."""
+    loc = session.exec(select(Location).where(Location.name == loc_name)).first()
+    if loc:
+        return loc
+    alias = session.exec(
+        select(LocationAlias).where(LocationAlias.alias == loc_name)
+    ).first()
+    if alias:
+        return session.get(Location, alias.canonical_id)
+    return None
+
+
+def _location_to_dict(loc: Location, display_name: str | None = None) -> dict:
+    return {
+        "name": display_name or loc.name,
+        "ancient_name": loc.ancient or loc.name,
+        "modern_name": loc.modern or "",
+        "lat": loc.lat,
+        "lng": loc.lng,
+        "description": loc.description or "",
+    }
+
+
+def _poem_to_dict(poem: Poem, session: Session, include_locations: bool = True) -> dict:
+    author_name = poem.author.name if poem.author else ""
+    result: dict = {
+        "id": poem.id,
+        "title": poem.title,
+        "author": author_name,
+        "dynasty": poem.dynasty,
+        "content": poem.content,
+        "written_year": poem.written_year,
+        "occasion": poem.occasion,
+        "locations": [],
+        "resolved_locations": [],
+    }
+    if include_locations:
+        links = session.exec(
+            select(PoemLocation)
+            .where(PoemLocation.poem_id == poem.id)
+            .order_by(PoemLocation.mention_order)
+        ).all()
+        for link in links:
+            loc = session.get(Location, link.location_id)
+            if loc:
+                result["locations"].append(loc.name)
+                result["resolved_locations"].append(_location_to_dict(loc))
+    return result
+
+
+def _build_trace(poet_name: str, session: Session) -> list[dict]:
     """
-    Build ordered travel trace for a poet based on their poems.
-    Poems are sorted by written_year, then locations within each poem.
-    Returns list of TracePoint dicts with sequence numbers.
+    Build chronological travel trace for a poet from DB.
+    Poems sorted by written_year, then id. Locations ordered by mention_order.
     """
-    poet_poems = [p for p in POEMS if p["author"] == poet_name]
-    poet_poems.sort(key=lambda p: (p.get("written_year") or 999, p["id"]))
+    poet = session.exec(select(Poet).where(Poet.name == poet_name)).first()
+    if not poet:
+        return []
+
+    poems = session.exec(
+        select(Poem)
+        .where(Poem.author_id == poet.id)
+        .order_by(
+            func.coalesce(Poem.written_year, 9999),
+            Poem.id,
+        )
+    ).all()
 
     trace = []
     seq = 0
-    seen_loc_poem = set()
+    seen: set[tuple[int, int]] = set()  # (poem_id, location_id)
 
-    for poem in poet_poems:
-        year = poem.get("written_year")
-        locs = resolve_poem_locations(poem.get("locations", []))
-        for loc in locs:
-            key = (loc["name"], poem["id"])
-            if key in seen_loc_poem:
+    for poem in poems:
+        links = session.exec(
+            select(PoemLocation)
+            .where(PoemLocation.poem_id == poem.id)
+            .order_by(PoemLocation.mention_order)
+        ).all()
+
+        for link in links:
+            key = (poem.id, link.location_id)
+            if key in seen:
                 continue
-            seen_loc_poem.add(key)
+            seen.add(key)
+            loc = session.get(Location, link.location_id)
+            if not loc:
+                continue
             trace.append(
                 {
                     "sequence": seq,
-                    "poem_id": poem["id"],
-                    "poem_title": poem["title"],
-                    "year": year,
-                    "location": {
-                        "name": loc["name"],
-                        "ancient_name": loc.get("ancient", loc["name"]),
-                        "modern_name": loc.get("modern", ""),
-                        "lat": loc["lat"],
-                        "lng": loc["lng"],
-                        "description": loc.get("desc", ""),
-                    },
+                    "poem_id": poem.id,
+                    "poem_title": poem.title,
+                    "year": poem.written_year,
+                    "location": _location_to_dict(loc),
                 }
             )
             seq += 1
@@ -48,76 +113,74 @@ def _build_trace(poet_name: str) -> list[dict]:
     return trace
 
 
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+
 @router.get("/")
-def list_poets():
-    """Return all poets with basic info."""
+def list_poets(session: Session = Depends(get_session)):
+    """Return all poets with basic info and poem count."""
+    poets = session.exec(select(Poet).order_by(func.coalesce(Poet.birth_year, 9999))).all()
+
     result = []
-    for name, info in POETS.items():
-        poem_count = sum(1 for p in POEMS if p["author"] == name)
+    for poet in poets:
+        poem_count = session.exec(
+            select(func.count()).where(Poem.author_id == poet.id)
+        ).one()
         result.append(
             {
-                "name": name,
-                "birth_year": info.get("birth_year"),
-                "death_year": info.get("death_year"),
-                "native_place": info.get("native_place"),
-                "style": info.get("style"),
+                "name": poet.name,
+                "birth_year": poet.birth_year,
+                "death_year": poet.death_year,
+                "native_place": poet.native_place,
+                "style": poet.style,
                 "poem_count": poem_count,
             }
         )
-    result.sort(key=lambda x: x.get("birth_year") or 999)
+
     return {"total": len(result), "poets": result}
 
 
 @router.get("/{poet_name}")
-def get_poet(poet_name: str):
+def get_poet(poet_name: str, session: Session = Depends(get_session)):
     """Return detailed info and all poems for a poet."""
-    if poet_name not in POETS:
+    poet = session.exec(select(Poet).where(Poet.name == poet_name)).first()
+    if not poet:
         raise HTTPException(status_code=404, detail=f"Poet '{poet_name}' not found")
 
-    info = POETS[poet_name]
-    poems = [p for p in POEMS if p["author"] == poet_name]
-
-    # Enrich poems with resolved locations
-    enriched_poems = []
-    for poem in poems:
-        locs = resolve_poem_locations(poem.get("locations", []))
-        enriched_poems.append(
-            {
-                **poem,
-                "resolved_locations": locs,
-            }
+    poems = session.exec(
+        select(Poem).where(Poem.author_id == poet.id).order_by(
+            func.coalesce(Poem.written_year, 9999), Poem.id
         )
+    ).all()
 
     return {
-        "name": poet_name,
-        "birth_year": info.get("birth_year"),
-        "death_year": info.get("death_year"),
-        "native_place": info.get("native_place"),
-        "biography": info.get("biography"),
-        "style": info.get("style"),
-        "poems": enriched_poems,
+        "name": poet.name,
+        "birth_year": poet.birth_year,
+        "death_year": poet.death_year,
+        "native_place": poet.native_place,
+        "biography": poet.biography,
+        "style": poet.style,
+        "poems": [_poem_to_dict(p, session) for p in poems],
     }
 
 
 @router.get("/{poet_name}/trace")
-def get_poet_trace(poet_name: str):
-    """
-    Return the travel trace for a poet.
-    The trace is a chronological list of locations extracted from their poems.
-    """
-    if poet_name not in POETS:
+def get_poet_trace(poet_name: str, session: Session = Depends(get_session)):
+    """Return the chronological travel trace for a poet."""
+    poet = session.exec(select(Poet).where(Poet.name == poet_name)).first()
+    if not poet:
         raise HTTPException(status_code=404, detail=f"Poet '{poet_name}' not found")
 
-    info = POETS[poet_name]
-    trace = _build_trace(poet_name)
+    trace = _build_trace(poet_name, session)
 
     return {
-        "poet": poet_name,
-        "birth_year": info.get("birth_year"),
-        "death_year": info.get("death_year"),
-        "native_place": info.get("native_place"),
-        "biography": info.get("biography"),
-        "style": info.get("style"),
+        "poet": poet.name,
+        "birth_year": poet.birth_year,
+        "death_year": poet.death_year,
+        "native_place": poet.native_place,
+        "biography": poet.biography,
+        "style": poet.style,
         "trace_count": len(trace),
         "trace": trace,
     }

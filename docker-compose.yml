@@ -1,4 +1,21 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: literature_map
+      POSTGRES_USER: litmap
+      POSTGRES_PASSWORD: litmap_secret
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"          # expose to host for local dev tools (psql, DBeaver, etc.)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litmap -d literature_map"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
     build:
       context: ./backend
@@ -7,6 +24,11 @@ services:
       - "8000"
     environment:
       - PYTHONUNBUFFERED=1
+      - DATABASE_URL=postgresql+psycopg2://litmap:litmap_secret@postgres:5432/literature_map
+      - CORS_ORIGINS=http://localhost:5173,http://localhost:3000
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   frontend:
     build:
@@ -21,3 +43,6 @@ services:
       - BACKEND_URL=http://backend:8000
     depends_on:
       - backend
+
+volumes:
+  postgres_data:
