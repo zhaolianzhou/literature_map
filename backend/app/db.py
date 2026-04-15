@@ -20,8 +20,16 @@ DATABASE_URL: str = os.environ.get(
     "sqlite:///./literature_map_dev.db",
 )
 
-# connect_args is only needed for SQLite (disables same-thread check).
-connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+# Railway provides postgresql:// URLs; SQLAlchemy requires postgresql+psycopg2://
+if DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
+
+# connect_args: SQLite needs check_same_thread=False;
+# PostgreSQL on Railway requires SSL.
+if DATABASE_URL.startswith("sqlite"):
+    connect_args = {"check_same_thread": False}
+else:
+    connect_args = {"sslmode": "require"}
 
 engine = create_engine(DATABASE_URL, echo=False, connect_args=connect_args)
 

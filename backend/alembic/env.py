@@ -27,6 +27,10 @@ if not db_url:
         "Set it in your Railway service variables."
     )
 
+# Railway provides postgresql:// URLs; SQLAlchemy requires postgresql+psycopg2://
+if db_url.startswith("postgresql://"):
+    db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
+
 config.set_main_option("sqlalchemy.url", db_url)
 
 
@@ -44,7 +48,8 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode (connects to the database)."""
-    connectable = create_engine(db_url, poolclass=pool.NullPool)
+    connect_args = {"sslmode": "require"} if db_url.startswith("postgresql") else {}
+    connectable = create_engine(db_url, poolclass=pool.NullPool, connect_args=connect_args)
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():
