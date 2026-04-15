@@ -1,0 +1,21 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    expose:
+      - "8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # With nginx proxy, all /api calls are forwarded to backend — no CORS needed
+        VITE_API_URL: ""
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend

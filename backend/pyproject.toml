@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "literature-map"
+version = "0.1.0"
+description = "Tang Dynasty Poet Travel Map"
+authors = ["zhaolianzhou"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+fastapi = "0.111.0"
+uvicorn = {version = "0.29.0", extras = ["standard"]}
+pydantic = "2.7.1"
+httpx = "0.27.0"
+python-multipart = "0.0.9"
+jieba = "0.42.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
