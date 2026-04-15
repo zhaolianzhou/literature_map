@@ -12,8 +12,10 @@ COPY pyproject.toml poetry.lock ./
 RUN poetry config virtualenvs.create false \
     && poetry install --only main --no-interaction --no-ansi
 
-# Copy application code and seed script
+# Copy application code, migrations, and seed script
 COPY app/ ./app/
+COPY alembic/ ./alembic/
+COPY alembic.ini ./
 COPY seed.py ./
 
 EXPOSE 8000
