@@ -21,6 +21,6 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 
 # nginx config template: serve SPA and proxy /api to backend
 # BACKEND_URL is injected at runtime via envsubst (e.g. https://xxx.up.railway.app)
-COPY nginx.conf /etc/nginx/templates/default.conf.template
+COPY nginx.conf /etc/nginx/templates/nginx.conf.template
 
 EXPOSE 80
