@@ -45,7 +45,7 @@ export function AddPoemModal({ onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
-  const { data: poetsData } = useQuery({ queryKey: ['poets'], queryFn: fetchPoets });
+  const { data: poetsData } = useQuery({ queryKey: ['poets'], queryFn: fetchPoets, staleTime: Infinity });
   const poetNames = poetsData?.poets.map((p) => p.name) ?? [];
 
   const mutation = useMutation({

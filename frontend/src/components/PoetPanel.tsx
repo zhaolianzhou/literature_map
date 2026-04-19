@@ -23,6 +23,8 @@ export function PoetPanel({
   const { data: poetsData } = useQuery({
     queryKey: ['poets'],
     queryFn: fetchPoets,
+    staleTime: 5 * 60 * 1000,   // treat data as fresh for 5 min
+    gcTime: Infinity,            // never evict from cache while the app is open
   });
 
   const { data: traceData } = useQuery({
