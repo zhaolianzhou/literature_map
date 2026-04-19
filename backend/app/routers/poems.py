@@ -1,10 +1,22 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select, func, or_
+from typing import Optional
+from pydantic import BaseModel
 
 from app.db import get_session
-from app.db_models import Poet, Poem, PoemLocation, Location, LocationAlias
+from app.db_models import Poet, Poem, PoemLocation, Location, LocationAlias, PoemRead
 
 router = APIRouter(prefix="/api/poems", tags=["poems"])
+
+
+class PoemCreateInput(BaseModel):
+    """User-facing poem creation payload (uses author name instead of author_id)."""
+    title: str
+    author_name: str
+    dynasty: str = "唐"
+    content: str
+    written_year: Optional[int] = None
+    occasion: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -53,6 +65,26 @@ def _poem_to_dict(poem: Poem, session: Session) -> dict:
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+
+@router.post("/", response_model=PoemRead, status_code=201)
+def create_poem(poem_in: PoemCreateInput, session: Session = Depends(get_session)):
+    """Create a new poem. Author is looked up by name."""
+    poet = session.exec(select(Poet).where(Poet.name == poem_in.author_name)).first()
+    if not poet:
+        raise HTTPException(status_code=404, detail=f"Poet '{poem_in.author_name}' not found")
+    poem = Poem(
+        title=poem_in.title,
+        author_id=poet.id,
+        dynasty=poem_in.dynasty,
+        content=poem_in.content,
+        written_year=poem_in.written_year,
+        occasion=poem_in.occasion,
+    )
+    session.add(poem)
+    session.commit()
+    session.refresh(poem)
+    return poem
+
 
 @router.get("/search/locations")
 def poems_by_location(

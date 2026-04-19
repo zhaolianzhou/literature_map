@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { TraceMap, POET_COLORS } from './components/TraceMap';
 import { PoetPanel } from './components/PoetPanel';
 import { PoemDetail } from './components/PoemDetail';
+import { AddPoetModal } from './components/AddPoetModal';
+import { AddPoemModal } from './components/AddPoemModal';
 import { fetchPoetTrace, fetchHeatmap, fetchStats } from './api/client';
 import type { TracePoint } from './types';
 import './App.css';
@@ -19,6 +21,8 @@ export default function App() {
   const [selectedLocation, setSelectedLocation] = useState<string | null>(null);
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [showAddPoet, setShowAddPoet] = useState(false);
+  const [showAddPoem, setShowAddPoem] = useState(false);
 
   const { data: stats } = useQuery({ queryKey: ['stats'], queryFn: fetchStats });
   const { data: heatmapData } = useQuery({
@@ -122,6 +126,38 @@ export default function App() {
             <span>地名 {stats.total_locations_db}</span>
           </div>
         )}
+
+        <button
+          onClick={() => setShowAddPoet(true)}
+          style={{
+            background: 'transparent',
+            color: '#f5c842',
+            border: '1px solid #f5c842',
+            borderRadius: 6,
+            padding: '4px 12px',
+            cursor: 'pointer',
+            fontSize: 11,
+            fontWeight: 600,
+          }}
+        >
+          + 添加诗人
+        </button>
+
+        <button
+          onClick={() => setShowAddPoem(true)}
+          style={{
+            background: 'transparent',
+            color: '#f5c842',
+            border: '1px solid #f5c842',
+            borderRadius: 6,
+            padding: '4px 12px',
+            cursor: 'pointer',
+            fontSize: 11,
+            fontWeight: 600,
+          }}
+        >
+          + 添加诗作
+        </button>
 
         <button
           onClick={() => setShowHeatmap((v) => !v)}
@@ -261,6 +297,9 @@ export default function App() {
           )}
         </main>
       </div>
+
+      {showAddPoet && <AddPoetModal onClose={() => setShowAddPoet(false)} />}
+      {showAddPoem && <AddPoemModal onClose={() => setShowAddPoem(false)} />}
     </div>
   );
 }

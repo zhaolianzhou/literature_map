@@ -77,3 +77,33 @@ export async function fetchStats(): Promise<Stats> {
   const { data } = await api.get('/api/stats');
   return data;
 }
+
+// ── Create ─────────────────────────────────────────────────────────────────
+
+export interface PoetCreateInput {
+  name: string;
+  birth_year?: number | null;
+  death_year?: number | null;
+  native_place?: string;
+  biography?: string;
+  style?: string;
+}
+
+export interface PoemCreateInput {
+  title: string;
+  author_name: string;
+  dynasty?: string;
+  content: string;
+  written_year?: number | null;
+  occasion?: string;
+}
+
+export async function createPoet(input: PoetCreateInput): Promise<Poet & { id: number }> {
+  const { data } = await api.post('/api/poets/', input);
+  return data;
+}
+
+export async function createPoem(input: PoemCreateInput): Promise<{ id: number } & Record<string, unknown>> {
+  const { data } = await api.post('/api/poems/', input);
+  return data;
+}

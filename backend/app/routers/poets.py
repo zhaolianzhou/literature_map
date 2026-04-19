@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select, func
 
 from app.db import get_session
-from app.db_models import Poet, Poem, PoemLocation, Location, LocationAlias
+from app.db_models import Poet, Poem, PoemLocation, Location, LocationAlias, PoetCreate, PoetRead
 
 router = APIRouter(prefix="/api/poets", tags=["poets"])
 
@@ -116,6 +116,19 @@ def _build_trace(poet_name: str, session: Session) -> list[dict]:
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+
+@router.post("/", response_model=PoetRead, status_code=201)
+def create_poet(poet_in: PoetCreate, session: Session = Depends(get_session)):
+    """Create a new poet."""
+    existing = session.exec(select(Poet).where(Poet.name == poet_in.name)).first()
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Poet '{poet_in.name}' already exists")
+    poet = Poet.model_validate(poet_in)
+    session.add(poet)
+    session.commit()
+    session.refresh(poet)
+    return poet
+
 
 @router.get("/")
 def list_poets(session: Session = Depends(get_session)):
